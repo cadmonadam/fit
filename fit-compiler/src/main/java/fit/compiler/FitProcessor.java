@@ -12,8 +12,10 @@ import fit.SharedPreferenceAble;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.lang.annotation.Annotation;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import javax.annotation.processing.AbstractProcessor;
 import javax.annotation.processing.Filer;
@@ -147,6 +149,10 @@ import static javax.lang.model.element.Modifier.PUBLIC;
           }
         }
 
+        if (!hasNonParaConstructor) {
+          throw new RuntimeException("Fit can't use no non-parameter constructor");
+        }
+
         //移除重复属性
         Set<Element> rep = new HashSet<>();
         for (Element field : fieldElements) {
@@ -161,10 +167,23 @@ import static javax.lang.model.element.Modifier.PUBLIC;
           }
         }
         fieldElements.removeAll(rep);
-        if (!hasNonParaConstructor) {
-          throw new RuntimeException("Fit can't use no non-parameter constructor");
+
+        List<PropertyDescriptor> setterPropertyDescriptors = new ArrayList<>();
+        //过滤setter
+        Set<Element> setterElements = new HashSet<>();
+        for (Element method : suspectedSetterElements) {
+          String methodName = method.getSimpleName().toString();
+          final String propertyName = methodName.substring(3).toLowerCase();
+          for (Element field : privateFieldElements) {
+            if (field.getSimpleName().toString().equalsIgnoreCase(propertyName)) {
+              setterElements.add(method);
+              setterPropertyDescriptors.add(new PropertyDescriptor(field,method));
+              break;
+            }
+          }
         }
 
+        List<PropertyDescriptor> getterPropertyDescriptors = new ArrayList<>();
         //过滤getter
         Set<Element> getterElements = new HashSet<>();
         for (Element method : suspectedGetterElements) {
@@ -175,21 +194,23 @@ import static javax.lang.model.element.Modifier.PUBLIC;
           for (Element field : privateFieldElements) {
             if (field.getSimpleName().toString().equalsIgnoreCase(propertyName)) {
               getterElements.add(method);
+              PropertyDescriptor getterProperty = new PropertyDescriptor(field);
+              getterProperty.setGetter(method);
+              getterPropertyDescriptors.add(getterProperty);
               break;
             }
           }
         }
 
-        //过滤setter
-        Set<Element> setterElements = new HashSet<>();
-        for (Element method : suspectedSetterElements) {
-          String methodName = method.getSimpleName().toString();
-          final String propertyName = methodName.substring(3).toLowerCase();
-          for (Element field : privateFieldElements) {
-            if (field.getSimpleName().toString().equalsIgnoreCase(propertyName)) {
-              setterElements.add(method);
-              break;
-            }
+
+        List<PropertyDescriptor> propertyDescriptors = new ArrayList<>();
+        for (PropertyDescriptor propertyDescriptor:setterPropertyDescriptors
+        ) {
+          if(getterPropertyDescriptors.contains(propertyDescriptor)){
+            int index = getterPropertyDescriptors.indexOf(propertyDescriptor);
+            propertyDescriptor.setReadMethodName(getterPropertyDescriptors.get(index).getReadMethodName());
+            propertyDescriptors.add(propertyDescriptor);
+            getterPropertyDescriptors.remove(index);
           }
         }
 
